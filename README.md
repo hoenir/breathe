@@ -2,7 +2,7 @@
 
 A full-screen breathing exercise. A single line folds into a star as you breathe in and unfolds as you breathe out. Inhale, hold, exhale and rest durations are adjustable.
 
-Live app: https://hoenir.github.io/breathe/
+Live app: https://sandervandecruys.be/breathe/
 
 ## Heart rate
 
