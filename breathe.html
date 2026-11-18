@@ -1,0 +1,335 @@
+<title>Unfolding Star</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Mono:wght@300;400&display=swap">
+<style>
+  /* Layout: one full-bleed canvas; a quiet word below the figure; controls drift up from the bottom edge and fade when idle. */
+  :root {
+    --night: #0a1619;
+    --night-2: #10232a;
+    --moon: #e4ece6;
+    --glow: #9fd4c4;
+    --dim: rgba(228, 236, 230, 0.45);
+    --hair: rgba(228, 236, 230, 0.14);
+    --font-word: "Instrument Serif", "Iowan Old Style", Georgia, serif;
+    --font-ui: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+    color-scheme: dark;
+  }
+  html, body { height: 100%; }
+  body {
+    background: radial-gradient(ellipse at 50% 45%, var(--night-2), var(--night) 70%);
+    background-color: var(--night);
+    color: var(--moon);
+    overflow: hidden;
+    font-family: var(--font-ui);
+    -webkit-font-smoothing: antialiased;
+    cursor: default;
+  }
+  body.idle { cursor: none; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+
+  .cue {
+    position: fixed; left: 0; right: 0; top: 78%;
+    display: grid; justify-items: center; gap: 0.6rem;
+    pointer-events: none; padding-inline: 16px; text-align: center;
+  }
+  .word {
+    font-family: var(--font-word); font-style: italic; font-weight: 400;
+    font-size: clamp(1.6rem, 3.4vw, 2.4rem); letter-spacing: 0.02em;
+    color: var(--moon); opacity: 0.82;
+    transition: opacity 0.9s ease;
+  }
+  .word.fading { opacity: 0; }
+  .count {
+    font-size: 0.78rem; letter-spacing: 0.3em; color: var(--dim);
+    font-variant-numeric: tabular-nums; font-weight: 300;
+  }
+
+  .panel {
+    position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+    transform: translateX(-50%);
+    width: min(720px, calc(100% - 32px));
+    display: grid; gap: 14px;
+    padding: 16px 18px;
+    background: rgba(10, 22, 25, 0.72);
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    border: 1px solid var(--hair); border-radius: 14px;
+    font-size: 0.72rem; color: var(--dim);
+    transition: opacity 0.8s ease, transform 0.8s ease;
+  }
+  body.idle .panel { opacity: 0; transform: translateX(-50%) translateY(10px); pointer-events: none; }
+
+  .sliders { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+  .field { display: grid; gap: 6px; min-width: 0; }
+  .field label { display: flex; justify-content: space-between; text-transform: uppercase; letter-spacing: 0.12em; }
+  .field output { color: var(--moon); font-variant-numeric: tabular-nums; letter-spacing: 0; }
+  input[type="range"] { width: 100%; accent-color: var(--glow); margin: 0; }
+
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .row .spacer { flex: 1; }
+  button, select {
+    font: inherit; color: var(--moon); background: transparent;
+    border: 1px solid var(--hair); border-radius: 999px;
+    padding: 6px 12px; cursor: pointer; letter-spacing: 0.06em;
+  }
+  select { border-radius: 8px; background: var(--night); }
+  button:hover, select:hover { border-color: var(--dim); }
+  button:focus-visible, select:focus-visible, input:focus-visible { outline: 1px solid var(--glow); outline-offset: 2px; }
+  button.primary { border-color: var(--glow); color: var(--glow); min-width: 6.5em; }
+  .stat { font-variant-numeric: tabular-nums; letter-spacing: 0.1em; }
+
+  @media (max-width: 560px) {
+    .sliders { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .cue { top: 72%; }
+  }
+</style>
+
+<canvas id="c" aria-hidden="true"></canvas>
+
+<div class="cue" aria-live="polite">
+  <div class="word" id="word">breathe in</div>
+  <div class="count" id="count">4</div>
+</div>
+
+<div class="panel" id="panel">
+  <div class="sliders">
+    <div class="field"><label for="s-in">Inhale <output id="o-in">4s</output></label><input id="s-in" type="range" min="1" max="12" step="0.5" value="4"></div>
+    <div class="field"><label for="s-hi">Hold <output id="o-hi">4s</output></label><input id="s-hi" type="range" min="0" max="12" step="0.5" value="4"></div>
+    <div class="field"><label for="s-out">Exhale <output id="o-out">4s</output></label><input id="s-out" type="range" min="1" max="16" step="0.5" value="4"></div>
+    <div class="field"><label for="s-ho">Rest <output id="o-ho">4s</output></label><input id="s-ho" type="range" min="0" max="12" step="0.5" value="4"></div>
+  </div>
+  <div class="row">
+    <button id="play" class="primary" type="button">Pause</button>
+    <button type="button" data-preset="4,4,4,4">Box</button>
+    <button type="button" data-preset="4,7,8,0">4·7·8</button>
+    <button type="button" data-preset="5.5,0,5.5,0">Coherent</button>
+    <button type="button" data-preset="4,0,8,0">Long out</button>
+    <select id="shape" aria-label="Star">
+      <option value="5,2">Pentagram</option>
+      <option value="7,3">Heptagram</option>
+      <option value="9,4">Enneagram</option>
+      <option value="12,5">Dodecagram</option>
+    </select>
+    <span class="spacer"></span>
+    <span class="stat" id="stat">0 breaths · 0:00</span>
+    <button id="fs" type="button">Full screen</button>
+  </div>
+</div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const cv = $('c'), ctx = cv.getContext('2d');
+  const wordEl = $('word'), countEl = $('count');
+  const sliders = { in: $('s-in'), hi: $('s-hi'), out: $('s-out'), ho: $('s-ho') };
+  const outs = { in: $('o-in'), hi: $('o-hi'), out: $('o-out'), ho: $('o-ho') };
+  const css = getComputedStyle(document.documentElement);
+  const MOON = css.getPropertyValue('--moon').trim();
+  const GLOW = css.getPropertyValue('--glow').trim();
+
+  // ---- settings
+  let star = [5, 2];
+  try {
+    const s = JSON.parse(localStorage.getItem('unfolding-star') || 'null');
+    if (s) { for (const k in sliders) if (s[k] != null) sliders[k].value = s[k]; if (s.shape) { $('shape').value = s.shape; } }
+  } catch (e) {}
+  star = $('shape').value.split(',').map(Number);
+  const save = () => { try { localStorage.setItem('unfolding-star', JSON.stringify({ in: sliders.in.value, hi: sliders.hi.value, out: sliders.out.value, ho: sliders.ho.value, shape: $('shape').value })); } catch (e) {} };
+
+  const phases = () => [
+    { key: 'in',  word: 'breathe in',  d: +sliders.in.value },
+    { key: 'hi',  word: 'hold',        d: +sliders.hi.value },
+    { key: 'out', word: 'breathe out', d: +sliders.out.value },
+    { key: 'ho',  word: 'rest',        d: +sliders.ho.value },
+  ].filter(p => p.d > 0);
+
+  const syncOutputs = () => { for (const k in sliders) outs[k].textContent = (+sliders[k].value) + 's'; };
+  syncOutputs();
+
+  // ---- timing
+  let running = true, phaseIdx = 0, phaseT = 0, last = performance.now();
+  let breaths = 0, elapsed = 0, shownWord = '';
+  const ease = t => 0.5 - 0.5 * Math.cos(Math.PI * Math.min(1, Math.max(0, t)));
+
+  function unfoldAmount(ph, t) {
+    if (ph.key === 'in') return ease(t);
+    if (ph.key === 'hi') return 1;
+    if (ph.key === 'out') return 1 - ease(t);
+    return 0;
+  }
+
+  function setWord(w) {
+    if (w === shownWord) return;
+    shownWord = w;
+    wordEl.classList.add('fading');
+    setTimeout(() => { wordEl.textContent = w; wordEl.classList.remove('fading'); }, 450);
+  }
+
+  // ---- geometry: a chain of n equal hinged segments; every hinge turns by p * (360·k/n)°.
+  // p = 0 is a straight line, p = 1 closes into the star polygon {n/k}.
+  function chain(p) {
+    const [n, k] = star;
+    const turn = p * 2 * Math.PI * k / n;
+    const a0 = -(n - 1) * turn / 2; // keep the middle segment level so the star closes point-up
+    const pts = [[0, 0]];
+    let x = 0, y = 0;
+    for (let i = 0; i < n; i++) {
+      const a = a0 + i * turn;
+      x += Math.cos(a); y += Math.sin(a);
+      pts.push([x, y]);
+    }
+    // centroid of the curve (segment midpoints), which is the star's centre when closed
+    let cx = 0, cy = 0;
+    for (let i = 0; i < n; i++) { cx += (pts[i][0] + pts[i + 1][0]) / 2; cy += (pts[i][1] + pts[i + 1][1]) / 2; }
+    cx /= n; cy /= n;
+    let hx = 0, hy = 0;
+    for (const q of pts) { q[0] -= cx; q[1] -= cy; hx = Math.max(hx, Math.abs(q[0])); hy = Math.max(hy, Math.abs(q[1])); }
+    return { pts, hx, hy };
+  }
+
+  let W = 0, H = 0, dpr = 1;
+  function resize() {
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    W = innerWidth; H = innerHeight;
+    cv.width = W * dpr; cv.height = H * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  addEventListener('resize', resize); resize();
+
+  function draw(p, glowAmt) {
+    ctx.clearRect(0, 0, W, H);
+    const [n, k] = star;
+    const cx = W / 2, cy = H * (W < 560 ? 0.40 : 0.43);
+    const R = Math.min(W, H) * (W < 560 ? 0.30 : 0.27);
+    const finalScale = R * 2 * Math.sin(Math.PI * k / n); // chord length for circumradius R
+    const { pts, hx, hy } = chain(p);
+    const s = Math.min(finalScale, (W * 0.42) / Math.max(hx, 1e-6), (H * 0.36) / Math.max(hy, 1e-6));
+
+    // halo that swells with the breath
+    const halo = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * (0.6 + 0.9 * p));
+    halo.addColorStop(0, `rgba(159,212,196,${0.05 + 0.07 * p})`);
+    halo.addColorStop(1, 'rgba(159,212,196,0)');
+    ctx.fillStyle = halo;
+    ctx.fillRect(0, 0, W, H);
+
+    // ghost of the destination star
+    const ghost = chain(1).pts;
+    ctx.beginPath();
+    ghost.forEach((q, i) => { const X = cx + q[0] * finalScale, Y = cy + q[1] * finalScale; i ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y); });
+    ctx.strokeStyle = 'rgba(228,236,230,0.045)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    const path = () => {
+      ctx.beginPath();
+      pts.forEach((q, i) => { const X = cx + q[0] * s, Y = cy + q[1] * s; i ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y); });
+    };
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+
+    // soft glow pass
+    path();
+    ctx.save();
+    ctx.shadowColor = GLOW;
+    ctx.shadowBlur = 18 + 22 * glowAmt;
+    ctx.strokeStyle = `rgba(159,212,196,${0.25 + 0.25 * glowAmt})`;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.restore();
+
+    // crisp line
+    path();
+    ctx.strokeStyle = MOON;
+    ctx.globalAlpha = 0.55 + 0.4 * p;
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    // hinges
+    ctx.fillStyle = MOON;
+    pts.forEach((q, i) => {
+      const r = (i === 0 || i === pts.length - 1) ? 2.4 : 1.6;
+      ctx.globalAlpha = 0.35 + 0.5 * p;
+      ctx.beginPath(); ctx.arc(cx + q[0] * s, cy + q[1] * s, r, 0, Math.PI * 2); ctx.fill();
+    });
+    ctx.globalAlpha = 1;
+  }
+
+  const fmt = sec => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
+
+  function frame(now) {
+    const dt = Math.min(0.1, (now - last) / 1000); last = now;
+    let list = phases();
+    if (phaseIdx >= list.length) phaseIdx = 0;
+    let ph = list[phaseIdx];
+
+    if (running) {
+      phaseT += dt; elapsed += dt;
+      while (phaseT >= ph.d) {
+        phaseT -= ph.d;
+        if (ph.key === 'out') breaths++;
+        phaseIdx = (phaseIdx + 1) % list.length;
+        ph = list[phaseIdx];
+      }
+    }
+    const t = phaseT / ph.d;
+    const p = unfoldAmount(ph, t);
+    // a slow shimmer while holding full
+    const glowAmt = ph.key === 'hi' ? 0.6 + 0.4 * Math.sin(now / 600) : p;
+    draw(p, glowAmt);
+
+    setWord(running ? ph.word : 'paused');
+    countEl.textContent = running ? Math.max(1, Math.ceil(ph.d - phaseT)) : '·';
+    $('stat').textContent = `${breaths} breath${breaths === 1 ? '' : 's'} · ${fmt(elapsed)}`;
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  // ---- controls
+  for (const k in sliders) sliders[k].addEventListener('input', () => { syncOutputs(); save(); });
+  $('shape').addEventListener('change', () => { star = $('shape').value.split(',').map(Number); save(); });
+  document.querySelectorAll('[data-preset]').forEach(b => b.addEventListener('click', () => {
+    const v = b.dataset.preset.split(',');
+    ['in', 'hi', 'out', 'ho'].forEach((k, i) => sliders[k].value = v[i]);
+    syncOutputs(); save(); phaseIdx = 0; phaseT = 0;
+  }));
+
+  const toggle = () => {
+    running = !running;
+    $('play').textContent = running ? 'Pause' : 'Resume';
+    poke();
+  };
+  $('play').addEventListener('click', toggle);
+
+  const fullscreen = () => {
+    try {
+      if (document.fullscreenElement) document.exitFullscreen();
+      else document.documentElement.requestFullscreen().catch(() => {});
+    } catch (e) {}
+  };
+  $('fs').addEventListener('click', fullscreen);
+  document.addEventListener('fullscreenchange', () => { $('fs').textContent = document.fullscreenElement ? 'Exit full screen' : 'Full screen'; });
+
+  addEventListener('keydown', e => {
+    if (['SELECT', 'INPUT', 'BUTTON'].includes(e.target.tagName)) return;
+    if (e.code === 'Space') { e.preventDefault(); toggle(); }
+    else if (e.key === 'f' || e.key === 'F') fullscreen();
+  });
+  cv.addEventListener('dblclick', fullscreen);
+
+  // controls fade away while you breathe; any movement brings them back
+  let idleTimer;
+  const poke = () => {
+    document.body.classList.remove('idle');
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => {
+      if (running && !$('panel').matches(':hover')) document.body.classList.add('idle');
+      else poke();
+    }, 3500);
+  };
+  ['mousemove', 'pointerdown', 'keydown', 'touchstart'].forEach(ev => addEventListener(ev, poke, { passive: true }));
+  poke();
+
+  // keep the screen awake if the browser allows it
+  const wake = async () => { try { await navigator.wakeLock?.request('screen'); } catch (e) {} };
+  wake(); document.addEventListener('visibilitychange', () => { if (!document.hidden) wake(); });
+})();
+</script>

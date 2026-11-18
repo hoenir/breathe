@@ -1,0 +1,886 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Unfolding Star</title>
+<meta name="description" content="Guided breathing with live heart rate, breath-by-breath heart rate swing and a before/after check.">
+<meta name="theme-color" content="#0a1619">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Mono:wght@300;400&display=swap">
+<style>
+  /* Layout: one full-bleed canvas; a quiet word below the figure; live pulse in the top corner;
+     controls drift up from the bottom edge and fade when idle; results float in a card. */
+  :root {
+    --night: #0a1619;
+    --night-2: #10232a;
+    --moon: #e4ece6;
+    --glow: #9fd4c4;
+    --ember: #e8a08f;
+    --dim: rgba(228, 236, 230, 0.5);
+    --hair: rgba(228, 236, 230, 0.14);
+    --font-word: "Instrument Serif", "Iowan Old Style", Georgia, serif;
+    --font-ui: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: radial-gradient(ellipse at 50% 45%, var(--night-2), var(--night) 70%);
+    background-color: var(--night);
+    color: var(--moon);
+    overflow: hidden;
+    font: 14px/1.4 var(--font-ui);
+    -webkit-font-smoothing: antialiased;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+  }
+  body.idle { cursor: none; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+
+  .cue {
+    position: fixed; left: 0; right: 0; top: 78%;
+    display: grid; justify-items: center; gap: 0.6rem;
+    pointer-events: none; padding-inline: 16px; text-align: center;
+  }
+  .word {
+    font-family: var(--font-word); font-style: italic; font-weight: 400;
+    font-size: clamp(1.6rem, 3.4vw, 2.4rem); letter-spacing: 0.02em;
+    color: var(--moon); opacity: 0.82; text-wrap: balance;
+    transition: opacity 0.9s ease;
+  }
+  .word.fading { opacity: 0; }
+  .count {
+    font-size: 0.78rem; letter-spacing: 0.3em; color: var(--dim);
+    font-variant-numeric: tabular-nums; font-weight: 300;
+  }
+
+  .pulse {
+    position: fixed; top: calc(18px + env(safe-area-inset-top, 0px)); right: calc(20px + env(safe-area-inset-right, 0px));
+    display: flex; align-items: baseline; gap: 8px;
+    font-variant-numeric: tabular-nums; color: var(--dim); font-size: 0.8rem; letter-spacing: 0.08em;
+    pointer-events: none;
+  }
+  .pulse b { font-weight: 400; color: var(--moon); font-size: 1.05rem; letter-spacing: 0; }
+  .pulse i {
+    width: 7px; height: 7px; border-radius: 50%; background: var(--ember);
+    align-self: center; opacity: 0.35; transform: scale(0.8);
+  }
+
+  .panel {
+    position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+    transform: translateX(-50%);
+    width: min(760px, calc(100% - 32px));
+    display: grid; gap: 14px;
+    padding: 16px 18px;
+    background: rgba(10, 22, 25, 0.78);
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    border: 1px solid var(--hair); border-radius: 14px;
+    font-size: 0.72rem; color: var(--dim);
+    transition: opacity 0.8s ease, transform 0.8s ease;
+  }
+  body.idle .panel { opacity: 0; transform: translateX(-50%) translateY(10px); pointer-events: none; }
+
+  .sliders { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+  .field { display: grid; gap: 6px; min-width: 0; }
+  .field label { display: flex; justify-content: space-between; text-transform: uppercase; letter-spacing: 0.12em; }
+  .field output { color: var(--moon); font-variant-numeric: tabular-nums; letter-spacing: 0; }
+  input[type="range"] { width: 100%; accent-color: var(--glow); margin: 0; }
+
+  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .row + .row { border-top: 1px solid var(--hair); padding-top: 14px; }
+  .row .spacer { flex: 1; }
+  .row .lab { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; } /* option text says it all; label stays for screen readers */
+  button, select {
+    font: inherit; color: var(--moon); background: transparent;
+    border: 1px solid var(--hair); border-radius: 999px;
+    padding: 6px 12px; cursor: pointer; letter-spacing: 0.06em;
+  }
+  select { border-radius: 8px; background: var(--night); }
+  button:hover:not(:disabled), select:hover { border-color: var(--dim); }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  button:focus-visible, select:focus-visible, input:focus-visible { outline: 1px solid var(--glow); outline-offset: 2px; }
+  button.primary { border-color: var(--glow); color: var(--glow); }
+  button.heart.on { border-color: var(--ember); color: var(--ember); }
+  .stat, .hrstatus { font-variant-numeric: tabular-nums; letter-spacing: 0.08em; }
+  .hrstatus { min-width: 0; }
+
+  .results {
+    position: fixed; inset: 0; display: grid; place-items: center;
+    padding: calc(16px + env(safe-area-inset-top, 0px)) 16px calc(16px + env(safe-area-inset-bottom, 0px));
+    background: rgba(6, 14, 16, 0.55);
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    overflow-y: auto; user-select: text;
+  }
+  .card {
+    width: min(560px, 100%);
+    background: var(--night-2); border: 1px solid var(--hair); border-radius: 16px;
+    padding: 24px; display: grid; gap: 20px;
+  }
+  .card h2 {
+    margin: 0; font-family: var(--font-word); font-style: italic; font-weight: 400;
+    font-size: 1.9rem; letter-spacing: 0.01em; text-wrap: balance;
+  }
+  .card .when { color: var(--dim); font-size: 0.72rem; letter-spacing: 0.12em; text-transform: uppercase; }
+  .compare { display: grid; grid-template-columns: auto 1fr 1fr; gap: 10px 18px; align-items: baseline; }
+  .compare .h { color: var(--dim); font-size: 0.7rem; letter-spacing: 0.14em; text-transform: uppercase; }
+  .compare .k { color: var(--dim); font-size: 0.75rem; }
+  .compare .v { font-variant-numeric: tabular-nums; font-size: 1.5rem; font-weight: 300; }
+  .compare .v small { font-size: 0.7rem; color: var(--dim); margin-left: 4px; }
+  .delta { font-size: 0.85rem; line-height: 1.6; }
+  .delta .up { color: var(--glow); }
+  .delta .down { color: var(--ember); }
+  .note { color: var(--dim); font-size: 0.75rem; line-height: 1.55; max-width: 62ch; }
+  .chart svg { width: 100%; height: auto; display: block; }
+  .history { width: 100%; border-collapse: collapse; font-size: 0.75rem; font-variant-numeric: tabular-nums; }
+  .history th { text-align: left; font-weight: 400; color: var(--dim); letter-spacing: 0.1em; text-transform: uppercase; font-size: 0.65rem; padding-bottom: 6px; }
+  .history td { padding: 5px 0; border-top: 1px solid var(--hair); }
+  .history td:not(:first-child), .history th:not(:first-child) { text-align: right; }
+  .card .actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+  @media (max-width: 640px) {
+    .panel { padding: 12px 14px; gap: 10px; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); }
+    .row + .row { padding-top: 10px; }
+    .row { gap: 6px; }
+    button, select { padding: 5px 10px; }
+    .sliders { gap: 10px 14px; }
+    .hrstatus { flex-basis: 100%; order: 5; }
+    .cue { top: 70%; }
+    .card { padding: 18px; }
+    .compare .v { font-size: 1.25rem; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .word, .panel { transition: none; }
+  }
+</style>
+</head>
+<body>
+
+<canvas id="c" aria-hidden="true"></canvas>
+
+<div class="pulse" id="pulse" hidden aria-live="off"><i id="beat"></i><b id="bpm">--</b>bpm<span id="swing"></span></div>
+
+<div class="cue" aria-live="polite">
+  <div class="word" id="word">breathe in</div>
+  <div class="count" id="count">4</div>
+</div>
+
+<div class="panel" id="panel">
+  <div class="sliders">
+    <div class="field"><label for="s-in">Inhale <output id="o-in">4s</output></label><input id="s-in" type="range" min="1" max="12" step="0.5" value="4"></div>
+    <div class="field"><label for="s-hi">Hold <output id="o-hi">4s</output></label><input id="s-hi" type="range" min="0" max="12" step="0.5" value="4"></div>
+    <div class="field"><label for="s-out">Exhale <output id="o-out">4s</output></label><input id="s-out" type="range" min="1" max="16" step="0.5" value="4"></div>
+    <div class="field"><label for="s-ho">Rest <output id="o-ho">4s</output></label><input id="s-ho" type="range" min="0" max="12" step="0.5" value="4"></div>
+  </div>
+  <div class="row">
+    <button id="play" class="primary" type="button">Pause</button>
+    <button type="button" data-preset="4,4,4,4">Box</button>
+    <button type="button" data-preset="4,7,8,0">4·7·8</button>
+    <button type="button" data-preset="5.5,0,5.5,0">Coherent</button>
+    <button type="button" data-preset="4,0,8,0">Long out</button>
+    <select id="shape" aria-label="Star">
+      <option value="5,2">Pentagram</option>
+      <option value="7,3">Heptagram</option>
+      <option value="9,4">Enneagram</option>
+      <option value="12,5">Dodecagram</option>
+    </select>
+    <span class="spacer"></span>
+    <span class="stat" id="stat">0 breaths · 0:00</span>
+    <button id="fs" type="button">Full screen</button>
+    <button id="install" type="button" hidden>Install</button>
+  </div>
+  <div class="row">
+    <button id="connect" class="heart" type="button">Connect heart rate</button>
+    <span class="hrstatus" id="hrstatus">Fitbit Air, chest strap or watch</span>
+    <span class="spacer"></span>
+    <label class="lab" for="len">Session</label>
+    <select id="len">
+      <option value="180">3 min session</option>
+      <option value="300" selected>5 min session</option>
+      <option value="600">10 min session</option>
+      <option value="900">15 min session</option>
+      <option value="0">Until I stop</option>
+    </select>
+    <label class="lab" for="measure">Before &amp; after</label>
+    <select id="measure">
+      <option value="60">1 min rest before/after</option>
+      <option value="120" selected>2 min rest before/after</option>
+      <option value="0">No rest check</option>
+    </select>
+    <button id="session" class="primary" type="button">Begin session</button>
+  </div>
+</div>
+
+<div class="results" id="results" hidden>
+  <div class="card" role="dialog" aria-labelledby="r-title">
+    <div>
+      <div class="when" id="r-when"></div>
+      <h2 id="r-title">Session complete</h2>
+    </div>
+    <div class="compare" id="r-compare"></div>
+    <div class="delta" id="r-delta"></div>
+    <div class="chart" id="r-chart"></div>
+    <p class="note" id="r-note"></p>
+    <div id="r-history"></div>
+    <div class="actions">
+      <button id="r-close" class="primary" type="button">Done</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const cv = $('c'), ctx = cv.getContext('2d');
+  const wordEl = $('word'), countEl = $('count');
+  const sliders = { in: $('s-in'), hi: $('s-hi'), out: $('s-out'), ho: $('s-ho') };
+  const outs = { in: $('o-in'), hi: $('o-hi'), out: $('o-out'), ho: $('o-ho') };
+  const css = getComputedStyle(document.documentElement);
+  const MOON = css.getPropertyValue('--moon').trim();
+  const GLOW = css.getPropertyValue('--glow').trim();
+
+  // ---- settings
+  const store = {
+    get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
+  };
+  const saved = store.get('unfolding-star', null);
+  if (saved) {
+    for (const k in sliders) if (saved[k] != null) sliders[k].value = saved[k];
+    for (const id of ['shape', 'len', 'measure']) if (saved[id] != null) $(id).value = saved[id];
+  }
+  let star = $('shape').value.split(',').map(Number);
+  const save = () => store.set('unfolding-star', {
+    in: sliders.in.value, hi: sliders.hi.value, out: sliders.out.value, ho: sliders.ho.value,
+    shape: $('shape').value, len: $('len').value, measure: $('measure').value,
+  });
+
+  const phases = () => [
+    { key: 'in',  word: 'breathe in',  d: +sliders.in.value },
+    { key: 'hi',  word: 'hold',        d: +sliders.hi.value },
+    { key: 'out', word: 'breathe out', d: +sliders.out.value },
+    { key: 'ho',  word: 'rest',        d: +sliders.ho.value },
+  ].filter(p => p.d > 0);
+
+  const syncOutputs = () => { for (const k in sliders) outs[k].textContent = (+sliders[k].value) + 's'; };
+  syncOutputs();
+
+  // ---- timing
+  let running = true, phaseIdx = 0, phaseT = 0, last = performance.now();
+  let breaths = 0, elapsed = 0, shownWord = '';
+  const ease = t => 0.5 - 0.5 * Math.cos(Math.PI * Math.min(1, Math.max(0, t)));
+  const fmt = sec => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
+
+  function unfoldAmount(ph, t) {
+    if (ph.key === 'in') return ease(t);
+    if (ph.key === 'hi') return 1;
+    if (ph.key === 'out') return 1 - ease(t);
+    return 0;
+  }
+
+  function setWord(w) {
+    if (w === shownWord) return;
+    shownWord = w;
+    wordEl.classList.add('fading');
+    setTimeout(() => { wordEl.textContent = w; wordEl.classList.remove('fading'); }, 450);
+  }
+
+  // ---- geometry: a chain of n equal hinged segments; every hinge turns by p * (360·k/n)°.
+  // p = 0 is a straight line, p = 1 closes into the star polygon {n/k}.
+  function chain(p) {
+    const [n, k] = star;
+    const turn = p * 2 * Math.PI * k / n;
+    const a0 = -(n - 1) * turn / 2; // keep the middle segment level so the star closes point-up
+    const pts = [[0, 0]];
+    let x = 0, y = 0;
+    for (let i = 0; i < n; i++) {
+      const a = a0 + i * turn;
+      x += Math.cos(a); y += Math.sin(a);
+      pts.push([x, y]);
+    }
+    // centroid of the curve (segment midpoints), which is the star's centre when closed
+    let cx = 0, cy = 0;
+    for (let i = 0; i < n; i++) { cx += (pts[i][0] + pts[i + 1][0]) / 2; cy += (pts[i][1] + pts[i + 1][1]) / 2; }
+    cx /= n; cy /= n;
+    let hx = 0, hy = 0;
+    for (const q of pts) { q[0] -= cx; q[1] -= cy; hx = Math.max(hx, Math.abs(q[0])); hy = Math.max(hy, Math.abs(q[1])); }
+    return { pts, hx, hy };
+  }
+
+  let W = 0, H = 0, dpr = 1;
+  function resize() {
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    W = innerWidth; H = innerHeight;
+    cv.width = W * dpr; cv.height = H * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  addEventListener('resize', resize); resize();
+
+  function draw(p, glowAmt, beat) {
+    ctx.clearRect(0, 0, W, H);
+    const [n, k] = star;
+    const cx = W / 2, cy = H * (W < 560 ? 0.40 : 0.43);
+    const R = Math.min(W, H) * (W < 560 ? 0.30 : 0.27);
+    const finalScale = R * 2 * Math.sin(Math.PI * k / n); // chord length for circumradius R
+    const { pts, hx, hy } = chain(p);
+    const s = Math.min(finalScale, (W * 0.42) / Math.max(hx, 1e-6), (H * 0.36) / Math.max(hy, 1e-6));
+
+    // halo that swells with the breath, with a faint thump on each heartbeat
+    const halo = ctx.createRadialGradient(cx, cy, 0, cx, cy, R * (0.6 + 0.9 * p + 0.05 * beat));
+    halo.addColorStop(0, `rgba(159,212,196,${0.05 + 0.07 * p + 0.025 * beat})`);
+    halo.addColorStop(1, 'rgba(159,212,196,0)');
+    ctx.fillStyle = halo;
+    ctx.fillRect(0, 0, W, H);
+
+    // ghost of the destination star
+    const ghost = chain(1).pts;
+    ctx.beginPath();
+    ghost.forEach((q, i) => { const X = cx + q[0] * finalScale, Y = cy + q[1] * finalScale; i ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y); });
+    ctx.strokeStyle = 'rgba(228,236,230,0.045)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    const path = () => {
+      ctx.beginPath();
+      pts.forEach((q, i) => { const X = cx + q[0] * s, Y = cy + q[1] * s; i ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y); });
+    };
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+
+    // soft glow pass
+    path();
+    ctx.save();
+    ctx.shadowColor = GLOW;
+    ctx.shadowBlur = 18 + 22 * glowAmt;
+    ctx.strokeStyle = `rgba(159,212,196,${0.25 + 0.25 * glowAmt})`;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    ctx.restore();
+
+    // crisp line
+    path();
+    ctx.strokeStyle = MOON;
+    ctx.globalAlpha = 0.55 + 0.4 * p;
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    // hinges
+    ctx.fillStyle = MOON;
+    pts.forEach((q, i) => {
+      const r = ((i === 0 || i === pts.length - 1) ? 2.4 : 1.6) + 0.6 * beat;
+      ctx.globalAlpha = Math.min(1, 0.35 + 0.5 * p + 0.2 * beat);
+      ctx.beginPath(); ctx.arc(cx + q[0] * s, cy + q[1] * s, r, 0, Math.PI * 2); ctx.fill();
+    });
+    ctx.globalAlpha = 1;
+  }
+
+  // ---- heart rate over the standard Bluetooth Heart Rate Profile (service 0x180D)
+  const hr = { device: null, connected: false, bpm: null, hasRR: false, beatPhase: 0, lastData: 0, packets: 0, rrPackets: 0, raw: '' };
+
+  function parseHeartRate(dv) {
+    const flags = dv.getUint8(0);
+    let i = 1;
+    const bpm = flags & 0x01 ? dv.getUint16(i, true) : dv.getUint8(i);
+    i += flags & 0x01 ? 2 : 1;
+    if (flags & 0x08) i += 2;                 // energy expended
+    const rr = [];
+    if (flags & 0x10) for (; i + 1 < dv.byteLength; i += 2) rr.push(dv.getUint16(i, true) * 1000 / 1024); // 1/1024 s -> ms
+    return { bpm, rr };
+  }
+
+  function onHeartRate(e) {
+    const { bpm, rr } = parseHeartRate(e.target.value);
+    hr.lastData = performance.now();
+    // packet stats, so the status line can show what the sensor actually sends
+    const dv = e.target.value;
+    hr.packets++; if (rr.length) hr.rrPackets++;
+    hr.raw = Array.from({ length: dv.byteLength }, (_, j) => dv.getUint8(j).toString(16).padStart(2, '0')).join(' ');
+    if (bpm > 0) hr.bpm = bpm;
+    if (rr.length) hr.hasRR = true;
+    $('bpm').textContent = hr.bpm ?? '--';
+    if (session) {
+      if (bpm > 0) session.samples.push([session.clock, bpm]);
+      const bucket = session[session.stage];
+      if (bucket) { if (bpm > 0) bucket.bpm.push(bpm); bucket.rr.push(...rr); }
+    }
+    updateHrStatus();
+  }
+
+  function updateHrStatus(msg) {
+    const el = $('hrstatus');
+    if (msg) { el.textContent = msg; return; }
+    if (!hr.connected) { el.textContent = hr.device ? 'Disconnected' : 'Fitbit Air, chest strap or watch'; return; }
+    const name = hr.device?.name || 'Sensor';
+    el.textContent = hr.bpm == null ? `${name} · waiting for data`
+      : hr.hasRR ? `${name} · beat intervals ✓ (${hr.rrPackets}/${hr.packets} packets)`
+      : `${name} · heart rate only · breath swing will be measured`;
+    el.title = hr.raw ? `Last packet: ${hr.raw}` : '';
+  }
+
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  let attaching = false, manualDisconnect = false;
+
+  async function attachOnce() {
+    const server = await hr.device.gatt.connect();
+    await sleep(300); // some bands drop the link if asked for services immediately
+    if (!server.connected) throw new Error('link dropped');
+    const svc = await server.getPrimaryService('heart_rate');
+    const ch = await svc.getCharacteristic('heart_rate_measurement');
+    ch.addEventListener('characteristicvaluechanged', onHeartRate);
+    await ch.startNotifications();
+  }
+
+  // Bluetooth links often drop during setup; retry a few times before giving up.
+  async function attach(tries = 5) {
+    attaching = true;
+    try {
+      for (let n = 1; ; n++) {
+        try {
+          await attachOnce();
+          break;
+        } catch (err) {
+          try { hr.device.gatt.disconnect(); } catch (e) {}
+          if (n >= tries) throw err;
+          updateHrStatus(`Connecting… (attempt ${n + 1} of ${tries})`);
+          await sleep(600 * n);
+        }
+      }
+    } finally {
+      attaching = false;
+    }
+    hr.connected = true;
+    $('connect').textContent = 'Disconnect';
+    $('connect').classList.add('on');
+    $('pulse').hidden = false;
+    updateHrStatus();
+  }
+
+  const connectError = err =>
+    `Could not connect after several tries (${err.message}). Check that Share heart rate is still on in Google Health, then press Connect again.`;
+
+  async function connect() {
+    if (hr.connected) { manualDisconnect = true; hr.device.gatt.disconnect(); return; }
+    try {
+      if (!hr.device) {
+        updateHrStatus('Pick your device in the browser list…');
+        hr.device = await navigator.bluetooth.requestDevice({ filters: [{ services: ['heart_rate'] }] });
+        hr.device.addEventListener('gattserverdisconnected', onDisconnect);
+      }
+      updateHrStatus('Connecting…');
+      await attach();
+    } catch (err) {
+      hr.connected = false;
+      if (err.name === 'NotFoundError') { updateHrStatus('No device chosen'); return; }
+      updateHrStatus(connectError(err));
+      $('connect').textContent = 'Connect heart rate';
+    }
+  }
+
+  async function onDisconnect() {
+    if (attaching) return; // attach() is already retrying
+    hr.connected = false;
+    $('connect').textContent = 'Connect heart rate';
+    $('connect').classList.remove('on');
+    $('pulse').hidden = true;
+    if (manualDisconnect) { manualDisconnect = false; hr.device = null; updateHrStatus(); return; }
+    // the band dropped out: reconnect quietly to the same device, no picker needed
+    try { updateHrStatus('Signal lost, reconnecting…'); await attach(); }
+    catch (err) { updateHrStatus(connectError(err)); }
+  }
+
+  if (!navigator.bluetooth) {
+    $('connect').disabled = true;
+    updateHrStatus('Heart rate needs Chrome or Edge on Android, Windows or Mac');
+  }
+  $('connect').addEventListener('click', connect);
+
+  // ---- HRV: RMSSD over cleaned beat-to-beat intervals
+  function rmssd(rrAll) {
+    const rr = rrAll.filter(x => x >= 300 && x <= 2000);
+    if (rr.length < 20) return null;
+    const med = [...rr].sort((a, b) => a - b)[rr.length >> 1];
+    let sum = 0, pairs = 0, kept = 0, prev = null;
+    for (const x of rr) {
+      if (Math.abs(x - med) / med > 0.3) { prev = null; continue; }   // ectopic beat or dropout
+      kept++;
+      if (prev != null && Math.abs(x - prev) / prev <= 0.2) { sum += (x - prev) ** 2; pairs++; }
+      prev = x;
+    }
+    return pairs >= 15 ? { value: Math.sqrt(sum / pairs), beats: kept } : null;
+  }
+  const mean = a => a.length ? a.reduce((s, x) => s + x, 0) / a.length : null;
+
+  // ---- sessions: [measure before] -> breathe -> [measure after] -> results
+  let session = null, demoP = 0;
+  const STAGE_WORDS = { before: 'sit still, breathe naturally', after: 'sit still once more, breathe naturally' };
+
+  function beginSession() {
+    const fast = new URLSearchParams(location.search).has('fast') ? 0.1 : 1; // test hook: ?demo&fast runs a session 10× quicker
+    const measure = hr.connected ? +$('measure').value * fast : 0;
+    const len = +$('len').value * fast;
+    const stages = [];
+    if (measure) stages.push({ key: 'before', dur: measure });
+    stages.push({ key: 'breathe', dur: len });
+    if (measure) stages.push({ key: 'after', dur: measure });
+    session = {
+      stages, idx: 0, stageT: 0, clock: 0, startedAt: new Date(), breaths0: breaths,
+      samples: [], marks: {},
+      before: { bpm: [], rr: [] }, after: { bpm: [], rr: [] }, breathe: { bpm: [], rr: [] },
+      measured: !!measure, swings: [], cycleStart: null,
+      pattern: phases().map(p => [p.key, p.d]),
+    };
+    if (!hr.connected && +$('measure').value) updateHrStatus('Connect heart rate first to get a before-and-after check');
+    enterStage();
+    running = true; $('play').textContent = 'Pause';
+    $('session').textContent = 'End session';
+  }
+
+  function enterStage() {
+    const st = session.stages[session.idx];
+    session.stage = st.key; session.stageT = 0;
+    session.marks[st.key] = [session.clock, null];
+    if (st.key === 'breathe') { phaseIdx = 0; phaseT = 0; session.cycleStart = session.clock; }
+  }
+
+  // ---- breath swing: how far heart rate rises and falls within each breath (works with bpm-only bands)
+  // A full breath window always contains one peak and one trough, so the band's lag doesn't matter here.
+  function swingFor(samples, t0, t1) {
+    const v = samples.filter(p => p[0] >= t0 && p[0] < t1).map(p => p[1]);
+    return v.length >= 4 ? Math.max(...v) - Math.min(...v) : null;
+  }
+  const median = a => { if (!a.length) return null; const b = [...a].sort((x, y) => x - y), m = b.length >> 1; return b.length % 2 ? b[m] : (b[m - 1] + b[m]) / 2; };
+
+  function closeCycle() {
+    const t0 = session.cycleStart, t1 = session.clock;
+    session.cycleStart = t1;
+    const sw = swingFor(session.samples, t0, t1);
+    if (sw == null) return;
+    session.swings.push({ t0, t1, swing: sw });
+    $('swing').textContent = ` · swing ${sw}`;
+  }
+
+  function nextStage() {
+    session.marks[session.stage][1] = session.clock;
+    if (session.stage === 'breathe') session.breaths = breaths - session.breaths0;
+    session.idx++;
+    if (session.idx >= session.stages.length) finishSession();
+    else enterStage();
+  }
+
+  function endSessionEarly() {
+    if (!session) return;
+    if (session.stage === 'before') { session = null; $('session').textContent = 'Begin session'; return; }
+    nextStage();
+  }
+
+  function finishSession() {
+    const s = session; session = null;
+    running = false; $('play').textContent = 'Resume';
+    $('session').textContent = 'Begin session';
+    if (s.breaths == null) s.breaths = breaths - s.breaths0;
+    $('swing').textContent = '';
+    showResults(s);
+  }
+
+  // ---- results card
+  function showResults(s) {
+    const b = rmssd(s.before.rr), a = rmssd(s.after.rr);
+    const hb = mean(s.before.bpm), ha = mean(s.after.bpm);
+    const minutes = (s.marks.breathe[1] - s.marks.breathe[0]) / 60;
+    const hasRR = s.before.rr.length + s.after.rr.length + s.breathe.rr.length > 0;
+    const sw = s.swings.map(c => c.swing);
+    const swing = median(sw);
+    const third = Math.floor(sw.length / 3);
+    const early = third >= 2 ? median(sw.slice(0, third)) : null, late = third >= 2 ? median(sw.slice(-third)) : null;
+
+    $('r-when').textContent = s.startedAt.toLocaleString([], { weekday: 'long', hour: '2-digit', minute: '2-digit' })
+      + ` · ${fmt(minutes * 60)} breathing · ${s.breaths} breaths`;
+    $('r-title').textContent = s.measured ? 'Before and after' : 'Session complete';
+
+    const cell = (v, unit) => v == null ? '<span class="v">—</span>' : `<span class="v">${Math.round(v)}<small>${unit}</small></span>`;
+    $('r-compare').innerHTML = s.measured ? `
+      <span></span><span class="h">Before</span><span class="h">After</span>
+      <span class="k">Resting heart rate</span>${cell(hb, 'bpm')}${cell(ha, 'bpm')}
+      ${hasRR ? `<span class="k">HRV (RMSSD)</span>${cell(b?.value, 'ms')}${cell(a?.value, 'ms')}` : ''}` : '';
+    $('r-compare').hidden = !s.measured;
+
+    const sign = d => d >= 0 ? '+' : '−';
+    const lines = [];
+    if (hb != null && ha != null) {
+      const d = ha - hb;
+      lines.push(`Resting heart rate <span class="${d <= 0 ? 'up' : 'down'}">${sign(d)}${Math.abs(d).toFixed(1)} bpm</span>`);
+    }
+    if (b && a) {
+      const d = a.value - b.value, pct = d / b.value * 100;
+      lines.push(`HRV <span class="${d >= 0 ? 'up' : 'down'}">${sign(d)}${Math.abs(d).toFixed(1)} ms (${sign(pct)}${Math.abs(pct).toFixed(0)}%)</span>`);
+    }
+    if (swing != null) {
+      let l = `Breath swing <span class="up">${swing.toFixed(1)} bpm</span> per breath, over ${sw.length} breaths`;
+      if (early != null) l += `<br>First third ${early.toFixed(1)} → last third <span class="${late >= early ? 'up' : 'down'}">${late.toFixed(1)} bpm</span>`;
+      lines.push(l);
+    }
+    $('r-delta').innerHTML = lines.join('<br>');
+    $('r-delta').hidden = !lines.length;
+
+    const notes = [];
+    if (!s.samples.length) notes.push('Connect a heart-rate sensor before you begin to see your heart rate respond to each breath.');
+    if (swing != null) notes.push('Breath swing is how far your heart rate rises as you breathe in and falls as you breathe out, taken as the middle value over all breaths. A larger, steadier swing means your breathing is steering your heart rate. It is usually largest with slow, even breathing around 5.5 seconds in and 5.5 out.');
+    else if (s.samples.length) notes.push('Not enough heart-rate readings per breath to measure the swing.');
+    if (s.samples.length && !hasRR) notes.push('Your band sends heart rate only, about once a second and smoothed, so standard HRV is not available and the swing reads smaller than a chest strap would show. Compare it with your own earlier sessions.');
+    else if (s.measured && (!b || !a)) notes.push('Not enough clean heartbeats in one of the rest measurements to calculate HRV. Sit still with the sensor snug, or try 2 minutes.');
+    else if (b && a) notes.push(`RMSSD from ${b.beats} and ${a.beats} beats. Short readings vary a lot; compare sessions at the same time of day.`);
+    $('r-note').textContent = notes.join(' ');
+
+    $('r-chart').innerHTML = chartSVG(s) + cycleSVG(s);
+
+    if (hb != null || swing != null || b) {
+      const hist = store.get('unfolding-star-history', []);
+      const r1 = v => v == null ? null : +v.toFixed(1);
+      hist.unshift({ t: s.startedAt.toISOString(), m: r1(minutes),
+        hb: hb == null ? null : Math.round(hb), ha: ha == null ? null : Math.round(ha),
+        sw: r1(swing), b: r1(b?.value), a: r1(a?.value) });
+      store.set('unfolding-star-history', hist.slice(0, 50));
+    }
+    renderHistory();
+    $('results').hidden = false;
+    $('r-close').focus();
+  }
+
+  // Average shape of one breath: heart rate relative to each breath's own mean, folded onto 0–100% of the breath.
+  function cycleSVG(s) {
+    const BINS = 24, acc = new Array(BINS).fill(0), cnt = new Array(BINS).fill(0);
+    for (const c of s.swings) {
+      const v = s.samples.filter(p => p[0] >= c.t0 && p[0] < c.t1);
+      const m = mean(v.map(p => p[1]));
+      for (const [t, bpm] of v) {
+        const k = Math.min(BINS - 1, Math.floor((t - c.t0) / (c.t1 - c.t0) * BINS));
+        acc[k] += bpm - m; cnt[k]++;
+      }
+    }
+    const pts = acc.map((x, k) => cnt[k] ? [(k + 0.5) / BINS, x / cnt[k]] : null).filter(Boolean);
+    if (pts.length < 6) return '';
+    const Wc = 600, Hc = 120, padL = 34, padR = 8, padT = 22, padB = 20;
+    const amp = Math.max(1, Math.ceil(Math.max(...pts.map(p => Math.abs(p[1])))));
+    const X = f => padL + f * (Wc - padL - padR);
+    const Y = v => padT + (1 - (v + amp) / (2 * amp)) * (Hc - padT - padB);
+    const t = (x, y, anchor, txt) => `<text x="${x}" y="${y}" text-anchor="${anchor}" fill="rgba(228,236,230,0.5)" font-size="10" font-family="IBM Plex Mono, monospace">${txt}</text>`;
+    const total = s.pattern.reduce((x, p) => x + p[1], 0);
+    let at = 0;
+    const bands = s.pattern.map(([key, d]) => {
+      const x0 = X(at / total); at += d; const x1 = X(at / total);
+      const label = { in: 'in', hi: 'hold', out: 'out', ho: 'rest' }[key];
+      const fill = key === 'in' ? 'rgba(159,212,196,0.08)' : key === 'hi' ? 'rgba(159,212,196,0.04)' : 'rgba(0,0,0,0)';
+      return `<rect x="${x0}" y="${padT}" width="${x1 - x0}" height="${Hc - padT - padB}" fill="${fill}"/>${t((x0 + x1) / 2, Hc - 5, 'middle', label)}`;
+    }).join('');
+    const line = pts.map((p, i) => `${i ? 'L' : 'M'}${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join('');
+    return `<svg viewBox="0 0 ${Wc} ${Hc}" role="img" aria-label="Average heart rate across one breath" style="margin-top:14px">
+      ${t(padL, 12, 'start', 'AVERAGE BREATH · HEART RATE AROUND ITS MEAN')}
+      ${bands}
+      <line x1="${padL}" x2="${Wc - padR}" y1="${Y(0)}" y2="${Y(0)}" stroke="rgba(228,236,230,0.12)" stroke-dasharray="2 4"/>
+      ${t(padL - 6, Y(amp) + 4, 'end', '+' + amp)}${t(padL - 6, Y(0) + 4, 'end', '0')}${t(padL - 6, Y(-amp) + 4, 'end', '−' + amp)}
+      <path d="${line}" fill="none" stroke="#e8a08f" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>
+    </svg>`;
+  }
+
+  function chartSVG(s) {
+    const pts = s.samples;
+    if (pts.length < 3) return '';
+    const Wc = 600, Hc = 130, padL = 34, padR = 8, padT = 10, padB = 20;
+    const tMax = pts[pts.length - 1][0] || 1;
+    let lo = Math.min(...pts.map(p => p[1])), hi = Math.max(...pts.map(p => p[1]));
+    lo = Math.floor(lo - 2); hi = Math.ceil(hi + 2);
+    const X = t => padL + (t / tMax) * (Wc - padL - padR);
+    const Y = v => padT + (1 - (v - lo) / (hi - lo)) * (Hc - padT - padB);
+    const band = (key, label) => {
+      const m = s.marks[key]; if (!m) return '';
+      const x0 = X(m[0]), x1 = X(m[1] ?? tMax);
+      return `<rect x="${x0}" y="${padT}" width="${Math.max(0, x1 - x0)}" height="${Hc - padT - padB}" fill="rgba(159,212,196,0.07)"/>
+        <text x="${(x0 + x1) / 2}" y="${Hc - 5}" text-anchor="middle" fill="rgba(228,236,230,0.5)" font-size="10" font-family="IBM Plex Mono, monospace">${label}</text>`;
+    };
+    const line = pts.map((p, i) => `${i ? 'L' : 'M'}${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join('');
+    const m = s.marks.breathe;
+    return `<svg viewBox="0 0 ${Wc} ${Hc}" role="img" aria-label="Heart rate during the session">
+      ${band('before', 'before')}${band('after', 'after')}
+      ${m ? `<text x="${(X(m[0]) + X(m[1] ?? tMax)) / 2}" y="${Hc - 5}" text-anchor="middle" fill="rgba(228,236,230,0.5)" font-size="10" font-family="IBM Plex Mono, monospace">breathing</text>` : ''}
+      <line x1="${padL}" x2="${Wc - padR}" y1="${Y(hi)}" y2="${Y(hi)}" stroke="rgba(228,236,230,0.08)"/>
+      <line x1="${padL}" x2="${Wc - padR}" y1="${Y(lo)}" y2="${Y(lo)}" stroke="rgba(228,236,230,0.08)"/>
+      <text x="${padL - 6}" y="${Y(hi) + 4}" text-anchor="end" fill="rgba(228,236,230,0.5)" font-size="10" font-family="IBM Plex Mono, monospace">${hi}</text>
+      <text x="${padL - 6}" y="${Y(lo) + 4}" text-anchor="end" fill="rgba(228,236,230,0.5)" font-size="10" font-family="IBM Plex Mono, monospace">${lo}</text>
+      <path d="${line}" fill="none" stroke="#e8a08f" stroke-width="1.5" stroke-linejoin="round"/>
+    </svg>`;
+  }
+
+  function renderHistory() {
+    const hist = store.get('unfolding-star-history', []).slice(0, 6);
+    if (!hist.length) { $('r-history').innerHTML = ''; return; }
+    const pair = (x, y, unit) => x == null || y == null ? '—' : `${x} → ${y} ${unit}`;
+    const showHRV = hist.some(h => h.b != null);
+    const rows = hist.map(h => {
+      const d = new Date(h.t);
+      return `<tr><td>${d.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
+        <td>${h.m} min</td><td>${pair(h.hb, h.ha, 'bpm')}</td><td>${h.sw == null ? '—' : h.sw + ' bpm'}</td>
+        ${showHRV ? `<td>${pair(h.b, h.a, 'ms')}</td>` : ''}</tr>`;
+    }).join('');
+    $('r-history').innerHTML = `<table class="history"><thead><tr><th>Recent</th><th>Length</th><th>Resting HR</th><th>Swing</th>${showHRV ? '<th>HRV</th>' : ''}</tr></thead><tbody>${rows}</tbody></table>`;
+  }
+
+  $('r-close').addEventListener('click', () => { $('results').hidden = true; poke(); });
+  $('session').addEventListener('click', () => { session ? endSessionEarly() : beginSession(); poke(); });
+
+  // ---- main loop
+  function frame(now) {
+    const wall = Math.max(0, (now - last) / 1000); last = now;
+    const dt = Math.min(0.1, wall); // animation step; session timing uses wall time so a throttled tab can't stretch a measurement
+    const list = phases();
+    if (phaseIdx >= list.length) phaseIdx = 0;
+    let ph = list[phaseIdx];
+    const measuring = session && session.stage !== 'breathe';
+
+    if (running) {
+      elapsed += dt;
+      if (session) {
+        session.clock += wall; session.stageT += wall;
+        const dur = session.stages[session.idx].dur;
+        if (dur && session.stageT >= dur) nextStage();
+      }
+      if (!measuring) {
+        phaseT += dt;
+        while (phaseT >= ph.d) {
+          phaseT -= ph.d;
+          if (ph.key === 'out') breaths++;
+          phaseIdx = (phaseIdx + 1) % list.length;
+          ph = list[phaseIdx];
+          if (phaseIdx === 0 && session?.stage === 'breathe') closeCycle();
+        }
+      }
+    }
+
+    // a synthetic heartbeat at the live rate, for the thump on the halo and the corner dot
+    let beat = 0;
+    if (hr.connected && hr.bpm) {
+      hr.beatPhase = (hr.beatPhase + dt * hr.bpm / 60) % 1;
+      beat = Math.exp(-hr.beatPhase * 9);
+      $('beat').style.opacity = 0.3 + 0.7 * beat;
+      $('beat').style.transform = `scale(${0.8 + 0.4 * beat})`;
+    }
+
+    const stillMeasuring = session && session.stage !== 'breathe';
+    if (stillMeasuring) {
+      draw(0.04 * (0.5 + 0.5 * Math.sin(now / 1800)), 0.15, beat);
+      const left = session.stages[session.idx].dur - session.stageT;
+      setWord(running ? STAGE_WORDS[session.stage] : 'paused');
+      countEl.textContent = `${session.stage} · ${fmt(Math.max(0, left))}`;
+    } else {
+      const p = unfoldAmount(ph, phaseT / ph.d);
+      demoP = p;
+      const glowAmt = ph.key === 'hi' ? 0.6 + 0.4 * Math.sin(now / 600) : p;
+      draw(p, glowAmt, beat * 0.6);
+      setWord(running ? ph.word : ($('results').hidden ? 'paused' : 'well done'));
+      let c = running ? String(Math.max(1, Math.ceil(ph.d - phaseT))) : '·';
+      if (session && running && session.stages[session.idx].dur) c += `   ·   ${fmt(session.stages[session.idx].dur - session.stageT)} left`;
+      countEl.textContent = c;
+    }
+    $('stat').textContent = `${breaths} breath${breaths === 1 ? '' : 's'} · ${fmt(elapsed)}`;
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  // ---- controls
+  for (const k in sliders) sliders[k].addEventListener('input', () => { syncOutputs(); save(); });
+  $('shape').addEventListener('change', () => { star = $('shape').value.split(',').map(Number); save(); });
+  $('len').addEventListener('change', save);
+  $('measure').addEventListener('change', save);
+  document.querySelectorAll('[data-preset]').forEach(b => b.addEventListener('click', () => {
+    const v = b.dataset.preset.split(',');
+    ['in', 'hi', 'out', 'ho'].forEach((k, i) => sliders[k].value = v[i]);
+    syncOutputs(); save(); phaseIdx = 0; phaseT = 0;
+  }));
+
+  const toggle = () => {
+    running = !running;
+    $('play').textContent = running ? 'Pause' : 'Resume';
+    if (running) $('results').hidden = true;
+    poke();
+  };
+  $('play').addEventListener('click', toggle);
+
+  const fullscreen = () => {
+    try {
+      if (document.fullscreenElement) document.exitFullscreen();
+      else document.documentElement.requestFullscreen().catch(() => {});
+    } catch (e) {}
+  };
+  $('fs').addEventListener('click', fullscreen);
+  if (!document.documentElement.requestFullscreen || matchMedia('(display-mode: fullscreen), (display-mode: standalone)').matches) $('fs').hidden = true;
+  document.addEventListener('fullscreenchange', () => { $('fs').textContent = document.fullscreenElement ? 'Exit full screen' : 'Full screen'; });
+
+  addEventListener('keydown', e => {
+    if (['SELECT', 'INPUT', 'BUTTON'].includes(e.target.tagName)) return;
+    if (e.code === 'Space') { e.preventDefault(); toggle(); }
+    else if (e.key === 'f' || e.key === 'F') fullscreen();
+    else if (e.key === 'Escape' && !$('results').hidden) $('results').hidden = true;
+  });
+  cv.addEventListener('dblclick', fullscreen);
+
+  // controls fade away while you breathe; any movement brings them back
+  let idleTimer;
+  const poke = () => {
+    document.body.classList.remove('idle');
+    clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => {
+      if (running && !$('panel').matches(':hover')) document.body.classList.add('idle');
+      else poke();
+    }, 3500);
+  };
+  ['mousemove', 'pointerdown', 'keydown', 'touchstart'].forEach(ev => addEventListener(ev, poke, { passive: true }));
+  poke();
+
+  // keep the screen awake if the browser allows it
+  const wake = async () => { try { await navigator.wakeLock?.request('screen'); } catch (e) {} };
+  wake(); document.addEventListener('visibilitychange', () => { if (!document.hidden) wake(); });
+
+  // ---- installable app
+  if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
+  let installPrompt = null;
+  addEventListener('beforeinstallprompt', e => { e.preventDefault(); installPrompt = e; $('install').hidden = false; });
+  addEventListener('appinstalled', () => { $('install').hidden = true; installPrompt = null; });
+  $('install').addEventListener('click', async () => {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    await installPrompt.userChoice.catch(() => {});
+    installPrompt = null; $('install').hidden = true;
+  });
+
+  // test hook: feeds fake heart-rate packets without a sensor (?demo, or ?demo=air for bpm-only like the Fitbit Air)
+  if (new URLSearchParams(location.search).has('demo')) {
+    const airMode = new URLSearchParams(location.search).get('demo') === 'air';
+    window.__showResults = showResults; // lets a test render the results card from a synthetic session
+    hr.connected = true; hr.device = { name: 'Demo sensor' }; $('pulse').hidden = false;
+    $('connect').disabled = true; $('connect').textContent = 'Demo sensor';
+    let t = 0;
+    setInterval(() => {
+      t += 1;
+      const base = session?.stage === 'after' ? 60 : session?.stage === 'breathe' ? 63 : 68;
+      const bpm = Math.round(base + 4 * Math.sin(t / 5));
+      const rr = [60000 / bpm + (Math.random() - 0.5) * (session?.stage === 'after' ? 90 : 50)];
+      const buf = new DataView(new ArrayBuffer(airMode ? 3 : 4));
+      if (airMode) {
+        buf.setUint8(0, 0x01); buf.setUint16(1, Math.round(base + 6 * (demoP - 0.5) + (Math.random() - 0.5) * 2), true);
+      } else {
+        buf.setUint8(0, 0x10); buf.setUint8(1, bpm); buf.setUint16(2, Math.round(rr[0] * 1024 / 1000), true);
+      }
+      onHeartRate({ target: { value: buf } });
+    }, new URLSearchParams(location.search).has('fast') ? 100 : 1000);
+  }
+})();
+</script>
+</body>
+</html>
