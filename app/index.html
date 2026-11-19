@@ -14,8 +14,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Mono:wght@300;400&display=swap">
 <style>
-  /* Layout: one full-bleed canvas; a quiet word below the figure; live pulse in the top corner;
-     controls drift up from the bottom edge and fade when idle; results float in a card. */
+  /* Layout: one full-bleed canvas; a quiet word below the figure; controls (with the live pulse)
+     drift up from the bottom edge and fade when idle; results float in a card. */
   :root {
     --night: #0a1619;
     --night-2: #10232a;
@@ -62,12 +62,10 @@
   }
 
   .pulse {
-    position: fixed; top: calc(18px + env(safe-area-inset-top, 0px)); right: calc(20px + env(safe-area-inset-right, 0px));
-    display: flex; align-items: baseline; gap: 8px;
-    font-variant-numeric: tabular-nums; color: var(--dim); font-size: 0.8rem; letter-spacing: 0.08em;
-    pointer-events: none;
+    display: inline-flex; align-items: baseline; gap: 6px;
+    font-variant-numeric: tabular-nums; color: var(--dim); letter-spacing: 0.06em;
   }
-  .pulse b { font-weight: 400; color: var(--moon); font-size: 1.05rem; letter-spacing: 0; }
+  .pulse b { font-weight: 400; color: var(--moon); font-size: 0.95rem; letter-spacing: 0; }
   .pulse i {
     width: 7px; height: 7px; border-radius: 50%; background: var(--ember);
     align-self: center; opacity: 0.35; transform: scale(0.8);
@@ -83,7 +81,7 @@
     backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
     border: 1px solid var(--hair); border-radius: 14px;
     font-size: 0.72rem; color: var(--dim);
-    transition: opacity 0.8s ease, transform 0.8s ease;
+    transition: opacity 0.5s ease, transform 0.5s ease;
   }
   body.idle .panel { opacity: 0; transform: translateX(-50%) translateY(10px); pointer-events: none; }
 
@@ -164,7 +162,6 @@
 
 <canvas id="c" aria-hidden="true"></canvas>
 
-<div class="pulse" id="pulse" hidden aria-live="off"><i id="beat"></i><b id="bpm">--</b>bpm<span id="swing"></span></div>
 
 <div class="cue" aria-live="polite">
   <div class="word" id="word">breathe in</div>
@@ -197,6 +194,7 @@
   </div>
   <div class="row">
     <button id="connect" class="heart" type="button">Connect heart rate</button>
+    <span class="pulse" id="pulse" hidden aria-live="off"><i id="beat"></i><b id="bpm">--</b>bpm<span id="swing"></span></span>
     <span class="hrstatus" id="hrstatus">Fitbit Air, chest strap or watch</span>
     <span class="spacer"></span>
     <label class="lab" for="len">Session</label>
@@ -828,17 +826,28 @@
   });
   cv.addEventListener('dblclick', fullscreen);
 
-  // controls fade away while you breathe; any movement brings them back
-  let idleTimer;
+  // Controls fade a few seconds after the last interaction. A tap on the background shows them,
+  // and tapping the background again while they are visible hides them straight away.
+  let idleTimer, lastPointer = 'mouse', wasIdle = false;
+  const hideControls = () => { clearTimeout(idleTimer); document.body.classList.add('idle'); };
   const poke = () => {
     document.body.classList.remove('idle');
     clearTimeout(idleTimer);
     idleTimer = setTimeout(() => {
-      if (running && !$('panel').matches(':hover')) document.body.classList.add('idle');
+      // :hover sticks after a tap on touch screens, so only a real mouse can hold the panel open
+      if (running && !(lastPointer === 'mouse' && $('panel').matches(':hover'))) hideControls();
       else poke();
-    }, 3500);
+    }, 2500);
   };
-  ['mousemove', 'pointerdown', 'keydown', 'touchstart'].forEach(ev => addEventListener(ev, poke, { passive: true }));
+  addEventListener('pointerdown', e => {
+    lastPointer = e.pointerType;
+    wasIdle = document.body.classList.contains('idle');
+    poke();
+  }, { capture: true, passive: true });
+  // pointermove instead of mousemove: touch screens fire fake mouse events after a tap
+  addEventListener('pointermove', e => { if (e.pointerType === 'mouse') poke(); }, { passive: true });
+  ['keydown', 'input', 'change'].forEach(ev => addEventListener(ev, poke, { passive: true }));
+  cv.addEventListener('pointerup', e => { if (e.pointerType !== 'mouse' && !wasIdle && running) hideControls(); });
   poke();
 
   // keep the screen awake if the browser allows it
