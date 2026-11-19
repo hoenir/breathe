@@ -177,10 +177,17 @@
   </div>
   <div class="row">
     <button id="play" class="primary" type="button">Pause</button>
-    <button type="button" data-preset="4,4,4,4">Box</button>
-    <button type="button" data-preset="4,7,8,0">4·7·8</button>
-    <button type="button" data-preset="5.5,0,5.5,0">Coherent</button>
-    <button type="button" data-preset="4,0,8,0">Long out</button>
+    <label class="lab" for="pattern">Pattern</label>
+    <select id="pattern">
+      <option value="gentle">Gentle start · 3 in, 4 out</option>
+      <option value="coherent">Coherent · 5.5 in, 5.5 out</option>
+      <option value="longout6">Long out · 4 in, 6 out</option>
+      <option value="longout5">Slow long out · 4 in, 8 out</option>
+      <option value="sigh">Cyclic sigh · in, sip, long out</option>
+      <option value="box">Box · 4, 4, 4, 4</option>
+      <option value="478">4·7·8</option>
+      <option value="custom">Custom</option>
+    </select>
     <select id="shape" aria-label="Star">
       <option value="5,2">Pentagram</option>
       <option value="7,3">Heptagram</option>
@@ -257,11 +264,34 @@
   const save = () => store.set('unfolding-star', {
     in: sliders.in.value, hi: sliders.hi.value, out: sliders.out.value, ho: sliders.ho.value,
     shape: $('shape').value, len: $('len').value, measure: $('measure').value,
+    pattern: $('pattern').value,
   });
+
+  // research-backed patterns; values are inhale, hold, exhale, rest in seconds
+  const PATTERNS = {
+    gentle:   [3, 0, 4, 0],
+    coherent: [5.5, 0, 5.5, 0],
+    longout6: [4, 0, 6, 0],
+    longout5: [4, 0, 8, 0],
+    sigh:     [3, 1, 6, 0],
+    box:      [4, 4, 4, 4],
+    '478':    [4, 7, 8, 0],
+  };
+  const KEYS = ['in', 'hi', 'out', 'ho'];
+  const matchPattern = () => {
+    const cur = KEYS.map(k => +sliders[k].value);
+    const sel = $('pattern').value;
+    const same = id => PATTERNS[id].every((v, i) => v === cur[i]);
+    if (PATTERNS[sel] && same(sel)) return sel;
+    return Object.keys(PATTERNS).find(same) || 'custom';
+  };
+  if (saved?.pattern) $('pattern').value = saved.pattern;
+  $('pattern').value = matchPattern();
+  const sighing = () => $('pattern').value === 'sigh';
 
   const phases = () => [
     { key: 'in',  word: 'breathe in',  d: +sliders.in.value },
-    { key: 'hi',  word: 'hold',        d: +sliders.hi.value },
+    { key: 'hi',  word: sighing() ? 'and a little more' : 'hold', d: +sliders.hi.value },
     { key: 'out', word: 'breathe out', d: +sliders.out.value },
     { key: 'ho',  word: 'rest',        d: +sliders.ho.value },
   ].filter(p => p.d > 0);
@@ -276,8 +306,9 @@
   const fmt = sec => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
 
   function unfoldAmount(ph, t) {
-    if (ph.key === 'in') return ease(t);
-    if (ph.key === 'hi') return 1;
+    // a cyclic sigh fills most of the way, then the second sip completes the star
+    if (ph.key === 'in') return (sighing() ? 0.8 : 1) * ease(t);
+    if (ph.key === 'hi') return sighing() ? 0.8 + 0.2 * ease(t) : 1;
     if (ph.key === 'out') return 1 - ease(t);
     return 0;
   }
@@ -790,15 +821,15 @@
   requestAnimationFrame(frame);
 
   // ---- controls
-  for (const k in sliders) sliders[k].addEventListener('input', () => { syncOutputs(); save(); });
+  for (const k in sliders) sliders[k].addEventListener('input', () => { syncOutputs(); $('pattern').value = matchPattern(); save(); });
   $('shape').addEventListener('change', () => { star = $('shape').value.split(',').map(Number); save(); });
   $('len').addEventListener('change', save);
   $('measure').addEventListener('change', save);
-  document.querySelectorAll('[data-preset]').forEach(b => b.addEventListener('click', () => {
-    const v = b.dataset.preset.split(',');
-    ['in', 'hi', 'out', 'ho'].forEach((k, i) => sliders[k].value = v[i]);
-    syncOutputs(); save(); phaseIdx = 0; phaseT = 0;
-  }));
+  $('pattern').addEventListener('change', () => {
+    const v = PATTERNS[$('pattern').value];
+    if (v) { KEYS.forEach((k, i) => sliders[k].value = v[i]); phaseIdx = 0; phaseT = 0; }
+    syncOutputs(); save();
+  });
 
   const toggle = () => {
     running = !running;
