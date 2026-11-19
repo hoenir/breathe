@@ -2,7 +2,7 @@
 
 A full-screen breathing exercise. As you breathe in, a line unfolds into nested polygons (triangle to octagon) or folds into a star, and folds back as you breathe out. Choose from research-backed patterns (coherent breathing, long exhale, cyclic sighing, box, 4·7·8) or tune inhale, hold, exhale and rest yourself.
 
-Live app: https://sandervandecruys.be/breathe/
+Live app: https://sandervandecruys.be/breathfold/
 
 ## Heart rate
 
