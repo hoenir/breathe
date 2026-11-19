@@ -188,11 +188,12 @@
       <option value="478">4·7·8</option>
       <option value="custom">Custom</option>
     </select>
-    <select id="shape" aria-label="Star">
+    <select id="shape" aria-label="Shape">
       <option value="5,2">Pentagram</option>
       <option value="7,3">Heptagram</option>
       <option value="9,4">Enneagram</option>
       <option value="12,5">Dodecagram</option>
+      <option value="poly">Polygons</option>
     </select>
     <span class="spacer"></span>
     <span class="stat" id="stat">0 breaths · 0:00</span>
@@ -351,7 +352,78 @@
   }
   addEventListener('resize', resize); resize();
 
+  // ---- nested polygons on a shared base: dot → line → triangle → square → … → octagon
+  const POLY_MAX = 8, POLY_LINE = 0.12; // share of the breath spent growing the base line
+  function drawPolygons(p, glowAmt, beat) {
+    ctx.clearRect(0, 0, W, H);
+    const R = Math.min(W, H) * (W < 560 ? 0.30 : 0.27);
+    const L = R * 0.9;                                  // shared edge length
+    const cx = W / 2, cy = H * (W < 560 ? 0.40 : 0.43);
+    const by = cy + L / (2 * Math.tan(Math.PI / POLY_MAX)); // base so the final octagon is centred
+    const x0 = cx - L / 2;
+    const poly = n => {                                   // regular n-gon standing on the base, A then B then up
+      const v = [[x0, by]];
+      let x = x0, y = by;
+      for (let j = 0; j < n - 1; j++) { const th = j * 2 * Math.PI / n; x += L * Math.cos(th); y -= L * Math.sin(th); v.push([x, y]); }
+      return v;
+    };
+    const expand = k => {                                 // k-gon with one extra vertex at the top, to morph into the (k+1)-gon
+      const u = poly(k);
+      if (k % 2) { const m = (k + 1) / 2; u.splice(m, 0, [...u[m]]); }
+      else { const a = u[k / 2], b = u[(k / 2 + 1) % k]; u.splice(k / 2 + 1, 0, [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2]); }
+      return u;
+    };
+    const trace = (v, close = true) => { ctx.beginPath(); v.forEach(([X, Y], i) => i ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y)); if (close) ctx.closePath(); };
+
+    let outer, done = 0, isLine = false;
+    if (p < POLY_LINE) {
+      const half = (L / 2) * ease(p / POLY_LINE);
+      outer = [[cx - half, by], [cx + half, by]]; isLine = true;
+    } else {
+      const s = 2 + (p - POLY_LINE) / (1 - POLY_LINE) * (POLY_MAX - 2);
+      const k = Math.min(POLY_MAX - 1, Math.floor(s)), t = s - k;
+      const a = expand(k), b = poly(k + 1);
+      outer = a.map((q, i) => [q[0] + (b[i][0] - q[0]) * t, q[1] + (b[i][1] - q[1]) * t]);
+      done = k;
+    }
+    const mx = outer.reduce((m, q) => m + q[0], 0) / outer.length;
+    const my = outer.reduce((m, q) => m + q[1], 0) / outer.length;
+
+    const halo = ctx.createRadialGradient(mx, my, 0, mx, my, R * (0.6 + 0.9 * p + 0.05 * beat));
+    halo.addColorStop(0, `rgba(159,212,196,${0.05 + 0.07 * p + 0.025 * beat})`);
+    halo.addColorStop(1, 'rgba(159,212,196,0)');
+    ctx.fillStyle = halo;
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    trace(poly(POLY_MAX));                                // ghost of the destination
+    ctx.strokeStyle = 'rgba(228,236,230,0.045)'; ctx.lineWidth = 1; ctx.stroke();
+
+    if (!isLine) { trace(outer); ctx.fillStyle = `rgba(159,212,196,${0.03 + 0.05 * p})`; ctx.fill(); }
+
+    for (let n = 3; n <= done; n++) {                     // the polygons already passed stay as fine lines
+      trace(poly(n));
+      ctx.strokeStyle = `rgba(228,236,230,${0.3 + 0.15 * (n / POLY_MAX)})`; ctx.lineWidth = 1; ctx.stroke();
+    }
+
+    trace(outer, !isLine);
+    ctx.save();
+    ctx.shadowColor = GLOW; ctx.shadowBlur = 18 + 22 * glowAmt;
+    ctx.strokeStyle = `rgba(159,212,196,${0.25 + 0.25 * glowAmt})`; ctx.lineWidth = 3; ctx.stroke();
+    ctx.restore();
+    trace(outer, !isLine);
+    ctx.strokeStyle = MOON; ctx.globalAlpha = 0.55 + 0.4 * p; ctx.lineWidth = 1.4; ctx.stroke();
+
+    ctx.fillStyle = MOON;                                 // the two base corners, like the star's end hinges
+    for (const q of [outer[0], outer[1]]) {
+      ctx.globalAlpha = Math.min(1, 0.35 + 0.5 * p + 0.2 * beat);
+      ctx.beginPath(); ctx.arc(q[0], q[1], 2.2 + 0.6 * beat, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
   function draw(p, glowAmt, beat) {
+    if ($('shape').value === 'poly') return drawPolygons(p, glowAmt, beat);
     ctx.clearRect(0, 0, W, H);
     const [n, k] = star;
     const cx = W / 2, cy = H * (W < 560 ? 0.40 : 0.43);
@@ -903,6 +975,7 @@
   if (new URLSearchParams(location.search).has('demo')) {
     const airMode = new URLSearchParams(location.search).get('demo') === 'air';
     window.__showResults = showResults; // lets a test render the results card from a synthetic session
+    window.__draw = draw;               // lets a test render a single animation frame
     hr.connected = true; hr.device = { name: 'Demo sensor' }; $('pulse').hidden = false;
     $('connect').disabled = true; $('connect').textContent = 'Demo sensor';
     let t = 0;
