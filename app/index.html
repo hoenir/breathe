@@ -171,7 +171,7 @@
 <div class="panel" id="panel">
   <div class="sliders">
     <div class="field"><label for="s-in">Inhale <output id="o-in">4s</output></label><input id="s-in" type="range" min="1" max="12" step="0.5" value="4"></div>
-    <div class="field"><label for="s-hi">Hold <output id="o-hi">4s</output></label><input id="s-hi" type="range" min="0" max="12" step="0.5" value="4"></div>
+    <div class="field"><label for="s-hi"><span id="l-hi">Hold</span> <output id="o-hi">4s</output></label><input id="s-hi" type="range" min="0" max="12" step="0.5" value="4"></div>
     <div class="field"><label for="s-out">Exhale <output id="o-out">4s</output></label><input id="s-out" type="range" min="1" max="16" step="0.5" value="4"></div>
     <div class="field"><label for="s-ho">Rest <output id="o-ho">4s</output></label><input id="s-ho" type="range" min="0" max="12" step="0.5" value="4"></div>
   </div>
@@ -297,7 +297,10 @@
     { key: 'ho',  word: 'rest',        d: +sliders.ho.value },
   ].filter(p => p.d > 0);
 
-  const syncOutputs = () => { for (const k in sliders) outs[k].textContent = (+sliders[k].value) + 's'; };
+  const syncOutputs = () => {
+    for (const k in sliders) outs[k].textContent = (+sliders[k].value) + 's';
+    $('l-hi').textContent = sighing() ? 'Sip' : 'Hold';
+  };
   syncOutputs();
 
   // ---- timing
@@ -893,7 +896,7 @@
   requestAnimationFrame(frame);
 
   // ---- controls
-  for (const k in sliders) sliders[k].addEventListener('input', () => { syncOutputs(); $('pattern').value = matchPattern(); save(); });
+  for (const k in sliders) sliders[k].addEventListener('input', () => { $('pattern').value = matchPattern(); syncOutputs(); save(); });
   $('shape').addEventListener('change', () => { star = $('shape').value.split(',').map(Number); save(); });
   $('len').addEventListener('change', save);
   $('measure').addEventListener('change', save);
