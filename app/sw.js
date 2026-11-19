@@ -1,5 +1,5 @@
 // Offline shell: app files are cached on install; fonts are cached the first time they load.
-const CACHE = 'unfolding-star-v8';
+const CACHE = 'unfolding-star-v9';
 const SHELL = ['./', 'index.html', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'apple-touch-icon.png'];
 
 self.addEventListener('install', e => {
