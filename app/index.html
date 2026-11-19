@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>Unfolding Star</title>
+<title>Breathfold</title>
 <meta name="description" content="Guided breathing with live heart rate, breath-by-breath heart rate swing and a before/after check.">
 <meta name="theme-color" content="#0a1619">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -256,6 +256,7 @@
     get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
   };
+  // storage keys keep the app's old name so existing settings and history carry over
   const saved = store.get('unfolding-star', null);
   if (saved) {
     for (const k in sliders) if (saved[k] != null) sliders[k].value = saved[k];

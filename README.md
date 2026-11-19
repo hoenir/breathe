@@ -1,6 +1,6 @@
-# Unfolding Star
+# Breathfold
 
-A full-screen breathing exercise. A single line folds into a star as you breathe in and unfolds as you breathe out. Inhale, hold, exhale and rest durations are adjustable.
+A full-screen breathing exercise. As you breathe in, a line unfolds into nested polygons (triangle to octagon) or folds into a star, and folds back as you breathe out. Choose from research-backed patterns (coherent breathing, long exhale, cyclic sighing, box, 4·7·8) or tune inhale, hold, exhale and rest yourself.
 
 Live app: https://sandervandecruys.be/breathe/
 

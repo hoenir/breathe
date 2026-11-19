@@ -1,6 +1,6 @@
 {
-  "name": "Unfolding Star",
-  "short_name": "Breathe",
+  "name": "Breathfold",
+  "short_name": "Breathfold",
   "description": "Guided breathing with live heart rate and a before/after HRV check.",
   "id": "./",
   "start_url": "./",
