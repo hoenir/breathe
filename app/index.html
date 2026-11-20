@@ -628,7 +628,8 @@
   // ---- sessions: [measure before] -> breathe -> [measure after] -> results
   let session = null, demoP = 0;
   // the rest checks deliberately don't mention breathing, so it's left alone
-  const STAGE_WORDS = { before: 'rest, and just watch', after: 'rest again, and just watch' };
+  const STAGE_WORDS = { before: 'rest, and just watch', after: 'rest again, and just watch', settle: 'settle in, and just watch' };
+  const STAGE_LABELS = { before: 'before', after: 'after', settle: 'settling in' };
 
   // ---- rest scene: a slow night flight over an endless mountain range (WebGL raymarching).
   // Steady glide, no pulsing or rhythm near breathing rates, so it doesn't pace the breath.
@@ -733,6 +734,7 @@ void main(){
     const len = +$('len').value * fast;
     const stages = [];
     if (measure) stages.push({ key: 'before', dur: measure });
+    else if (+$('measure').value) stages.push({ key: 'settle', dur: 60 * fast }); // no sensor: a quiet minute to settle in
     stages.push({ key: 'breathe', dur: len });
     if (measure) stages.push({ key: 'after', dur: measure });
     session = {
@@ -742,7 +744,6 @@ void main(){
       measured: !!measure, swings: [], cycleStart: null,
       pattern: phases().map(p => [p.key, p.d]),
     };
-    if (!hr.connected && +$('measure').value) updateHrStatus('Connect heart rate first to get a before-and-after check');
     enterStage();
     running = true; $('play').textContent = 'Pause';
     $('session').textContent = 'End session';
@@ -984,7 +985,7 @@ void main(){
       else draw(0.04, 0.15, beat);
       const left = session.stages[session.idx].dur - session.stageT;
       setWord(running ? STAGE_WORDS[session.stage] : 'paused');
-      countEl.textContent = `${session.stage} · ${fmt(Math.max(0, left))}`;
+      countEl.textContent = `${STAGE_LABELS[session.stage]} · ${fmt(Math.max(0, left))}`;
     } else {
       const p = unfoldAmount(ph, phaseT / ph.d);
       demoP = p;
